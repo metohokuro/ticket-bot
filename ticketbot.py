@@ -121,6 +121,41 @@ async def ticket(
     # ボタン付きのメッセージを送信
     view = TicketView(role=role, category=category, log_channel=log_channel)
     await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="say", description="他人になりすませれます")
+async def say(interaction: discord.Interaction, user: discord.Member, message: str):
+    """
+    指定したチャンネルにウェブフックを作成して、そのウェブフックを使い
+    指定されたユーザー風の名前とアイコンでメッセージを送信する
+    """
+    try:
+        # 実行されたチャンネル
+        channel = interaction.channel
+
+        # チャンネルにWebhookを作成
+        webhook = await channel.create_webhook(name=f"{user.display_name}'s webhook")
+
+        # ユーザーの名前とアバターURLを取得
+        username = user.display_name
+        avatar_url = user.avatar.url if user.avatar else user.default_avatar.url
+
+        # Webhookでメッセージを送信
+        await webhook.send(
+            content=message,  # メッセージ内容
+            username=username,  # Webhookの名前をユーザー名に設定
+            avatar_url=avatar_url  # Webhookのアイコンをユーザーのアイコンに設定
+        )
+
+        # Webhookを削除
+        await webhook.delete()
+
+        # 完了メッセージを送信
+        await interaction.response.send_message("送信に成功", ephemeral=True)
+
+    except Exception as e:
+        # エラーハンドリング
+        await interaction.response.send_message(f"エラーが発生しました: {str(e)}",ephemeral=True)
+
 # Botの起動
 @bot.event
 async def on_ready():
