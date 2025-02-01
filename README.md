@@ -6,7 +6,7 @@
 # https://discord.com/invite/MxeTNy83K6
 # 作り方
 - このリポジトリをフォークする(またはダウンロード)
-- https://discord.com/developers/application
+- https://discord.com/developers/applications
 - ↑にアクセスしてbotを作る
 - 実行するパソコンのコマンドプロンプトに↓を実行する
 - pip install discord.py
