@@ -124,17 +124,59 @@ async def ticket(
     view = TicketView(role=role, category=category, log_channel=log_channel)
     await interaction.response.send_message(embed=embed, view=view)
 
-@bot.tree.command(name="say", description="他人になりすませれます")
+@bot.tree.command(name="say", description="指定されたユーザー風のメッセージを送信します")
+@app_commands.describe(user="メッセージを送信する際のユーザー", message="送信するメッセージ内容")
 async def say(interaction: discord.Interaction, user: discord.Member, message: str):
     """
-    指定したチャンネルにウェブフックを作成して、そのウェブフックを使い
-    指定されたユーザー風の名前とアイコンでメッセージを送信する
+    指定されたチャンネルにWebhookを作成して送信するが、
+    メッセージにロールメンション（@everyone, @here含む）が含まれていた場合は送信を中止し、
+    みんなに「○○が△△のロールを使おうとしました！」と通知する。
     """
     try:
+        # 実行者の情報
+        executor = interaction.user
+        guild = interaction.guild  # ギルド情報を取得
+
+        # ログ用チャンネルを取得
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+
+        # 🛑 @everyone や @here の検出
+        if "@everyone" in message or "@here" in message or '@認証済み' in message or '@認証まだ' in message or '@member' in message:
+            warning_message = f"⚠️ {executor.mention} が everyone または here を使おうとしました！"
+            log_message = f"🛑 `/say` コマンドで everyone または here のメンションが検出されました。\n\n"
+            log_message += f"👤 実行者: {executor.mention} ({executor.name} / ID: {executor.id})"
+
+            # ログ用チャンネルに警告を送信
+            if log_channel:
+                await log_channel.send(log_message)
+
+            # 実行者にエラーメッセージを送信
+            await interaction.response.send_message("⚠️ everyone または here を含むメッセージは送信できません！", ephemeral=True)
+            return
+
+        # 🛑 通常のロールメンションの検出
+        mentioned_roles = [role for role in guild.roles if f"<@&{role.id}>" in message]
+        if mentioned_roles:
+            role_names = ", ".join([role.mention for role in mentioned_roles])  # メンション形式
+            role_plain_names = ", ".join([role.name for role in mentioned_roles])  # 文字列形式
+
+            warning_message = f"⚠️ {executor.mention} が {role_names} を使おうとしました！"
+            log_message = f"🛑 `/say` コマンドでロールメンションが検出されました。\n\n"
+            log_message += f"👤 実行者: {executor.mention} ({executor.name} / ID: {executor.id})\n"
+            log_message += f"📝 試みたロール: {role_plain_names}"
+
+            # ログ用チャンネルに警告を送信
+            if log_channel:
+                await log_channel.send(log_message)
+
+            # 実行者にエラーメッセージを送信
+            await interaction.response.send_message("⚠️ ロールメンションを含むメッセージは送信できません！", ephemeral=True)
+            return
+
         # 実行されたチャンネル
         channel = interaction.channel
 
-        # チャンネルにWebhookを作成
+        # Webhookを作成
         webhook = await channel.create_webhook(name=f"{user.display_name}'s webhook")
 
         # ユーザーの名前とアバターURLを取得
@@ -151,14 +193,28 @@ async def say(interaction: discord.Interaction, user: discord.Member, message: s
         # Webhookを削除
         await webhook.delete()
 
-        # 完了メッセージを送信
-        await interaction.response.send_message("送信に成功", ephemeral=True)
+        # 実行者のみに通知
+        await interaction.response.send_message("メッセージを送信しました！", ephemeral=True)
+
+        # `/say` コマンドの実行ログを送信
+        if log_channel:
+            executor_info = (
+                f"👤 実行者: {executor.mention}\n"
+                f"📝 名前: {executor.display_name}\n"
+                f"🔗 ユーザー名: {executor.name}\n"
+                f"🆔 ID: {executor.id}\n"
+                f"📝 内容: {message}"
+            )
+            await log_channel.send(f"🛠 `/say` コマンドが実行されました！\n\n{executor_info}")
 
     except Exception as e:
-        # エラーハンドリング
-        await interaction.response.send_message(f"エラーが発生しました: {str(e)}",ephemeral=True)
-        #await channel.send(f"エラーが発生しました: {str(e)}",ephemeral=True)
-
+        # エラー発生時に、まだ `interaction.response.send_message()` が実行されていなければ送信
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"エラーが発生しました: {str(e)}", ephemeral=True)
+        else:
+            # すでにレスポンス済みの場合、ログチャンネルにエラー情報を送信
+            if log_channel:
+                await log_channel.send(f"⚠️ エラーが発生しました: {str(e)}")
 @bot.tree.command(name="announce", description="Botを導入しているサーバーのオーナーにお知らせを送信します")
 @app_commands.describe(
     password="管理者のみが知るパスワード",
